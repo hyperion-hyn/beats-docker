@@ -12,7 +12,7 @@ RUN apk update && apk add git make go musl-dev bash libpcap-dev linux-headers
 RUN go get github.com/magefile/mage \
     && go get github.com/mitchellh/gox
 
-RUN git clone https://github.com/elastic/beats.git $GOPATH/src/github.com/elastic/beats \
+RUN git clone --single-branch -b v{{ elastic_version }} https://github.com/elastic/beats.git $GOPATH/src/github.com/elastic/beats \
     && cd $GOPATH/src/github.com/elastic/beats \
     && find . -iname 'Makefile' ! -path './winlogbeat/*' -exec sed -i 's/\(GOX_OS\|GOX_FLAGS\|GOX_OSARCH\)=/\1?=/g' {} \; \
     && sed -i 's/foreach var,filebeat winlogbeat metricbeat heartbeat auditbeat,/foreach var,filebeat metricbeat heartbeat auditbeat,/g' Makefile \
@@ -34,7 +34,7 @@ RUN rm {{ beat_home }}/{{ beat }}
 # 
 FROM alpine:3.8
 
-RUN apk add --no-cache curl shadow libcap
+RUN apk add --no-cache bash curl shadow libcap
 
 COPY --from=repos {{ beat_home }}/ {{ beat_home }}/
 COPY --from=builder /go/bin/{{ beat }}-linux-amd64 {{ beat_home }}/{{ beat }}
