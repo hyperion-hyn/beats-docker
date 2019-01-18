@@ -2,14 +2,42 @@
 {% set beat_home = '/usr/share/%s' % beat -%}
 {% set binary_file = '%s/%s' % (beat_home, beat) -%}
 
-FROM centos:7
+FROM alpine:3.8 as builder
+ENV GOPATH=/go \
+    GOROOT=/usr/lib/go \
+    PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 
-RUN yum update -y && yum install -y curl && yum clean all
+RUN apk update && apk add git make go musl-dev bash libpcap-dev linux-headers
+
+RUN go get github.com/magefile/mage \
+    && go get github.com/mitchellh/gox
+
+RUN git clone https://github.com/elastic/beats.git $GOPATH/src/github.com/elastic/beats \
+    && cd $GOPATH/src/github.com/elastic/beats \
+    && find . -iname 'Makefile' ! -path './winlogbeat/*' -exec sed -i 's/\(GOX_OS\|GOX_FLAGS\|GOX_OSARCH\)=/\1?=/g' {} \; \
+    && sed -i 's/foreach var,filebeat winlogbeat metricbeat heartbeat auditbeat,/foreach var,filebeat metricbeat heartbeat auditbeat,/g' Makefile \
+    && PATH=$GOPATH/bin:$PATH GOX_OS=`uname -s | tr '[:upper:]' '[:lower:]'` GOX_OSARCH=`uname -s | tr '[:upper:]' '[:lower:]'`/`uname -m` GOX_FLAGS='-arch=amd64' make crosscompile \
+    && find ./ -iname "*-`uname -s | tr '[:upper:]' '[:lower:]'`-amd64" -exec cp {} $GOPATH/bin \;
+
+
+# 
+FROM alpine:3.8 as repos
+
+RUN apk update && apk add curl
 
 RUN curl -Lso - {{ url }} | \
       tar zxf - -C /tmp && \
     mv /tmp/{{ beat }}-{{ elastic_version }}-linux-x86_64 {{ beat_home }}
 
+RUN rm {{ beat_home }}/{{ beat }}
+
+# 
+FROM alpine:3.8
+
+RUN apk add --no-cache curl shadow libcap
+
+COPY --from=repos {{ beat_home }}/ {{ beat_home }}/
+COPY --from=builder /go/bin/{{ beat }}-linux-amd64 {{ beat_home }}/{{ beat }}
 
 ENV ELASTIC_CONTAINER true
 ENV PATH={{ beat_home }}:$PATH
