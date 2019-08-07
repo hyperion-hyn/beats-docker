@@ -18,7 +18,7 @@ BEATS := $(shell cat beats.txt)
 REGISTRY ?= docker.elastic.co
 HTTPD ?= beats-docker-artifact-server
 
-IMAGE_FLAVORS ?= oss full
+IMAGE_FLAVORS ?= oss full alpine
 FIGLET := pyfiglet -w 160 -f puffy
 
 # Make sure we run local versions of everything, particularly commands
@@ -78,6 +78,14 @@ $(BEATS): venv
 	  -D image_flavor=full \
 	  templates/Dockerfile.j2 > build/$@/Dockerfile-full
 	docker build $(DOCKER_FLAGS) -f build/$@/Dockerfile-full --tag=$(REGISTRY)/beats/$@:$(VERSION_TAG) build/$@
+
+	jinja2 \
+	  -D beat=$@ \
+	  -D elastic_version=$(ELASTIC_VERSION) \
+	  -D url=$(DOWNLOAD_URL_ROOT)/$@/$@-$(ELASTIC_VERSION)-linux-x86_64.tar.gz \
+	  -D image_flavor=alpine \
+	  templates/Dockerfile.j2 > build/$@/Dockerfile-alpine
+	docker build $(DOCKER_FLAGS) -f build/$@/Dockerfile-alpine --tag=$(REGISTRY)/beats/$@-alpine:$(VERSION_TAG) build/$@
 
 	jinja2 \
 	  -D beat=$@ \

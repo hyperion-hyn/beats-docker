@@ -2,26 +2,45 @@
 {% set beat_home = '/usr/share/%s' % beat -%}
 {% set binary_file = '%s/%s' % (beat_home, beat) -%}
 
-FROM centos:7
 
-RUN yum update -y && yum install -y curl && yum clean all
+{% if image_flavor == 'alpine' -%}
+  FROM alpine
+
+  RUN apk add --update --no-cache curl bash \
+      && rm -rf /var/cache/apk/*
+{% else -%}
+  FROM centos:7
+
+  RUN yum update -y && yum install -y curl && yum clean all
+{% endif -%}
 
 RUN curl -Lso - {{ url }} | \
       tar zxf - -C /tmp && \
     mv /tmp/{{ beat }}-{{ elastic_version }}-linux-x86_64 {{ beat_home }}
 
+{% if image_flavor == 'alpine' -%}
+  RUN wget -q -O /etc/apk/keys/sgerrand.rsa.pub https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub \ 
+      && wget https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.29-r0/glibc-2.29-r0.apk \ 
+      && apk add glibc-2.29-r0.apk
+{% endif -%}
 
 ENV ELASTIC_CONTAINER true
-ENV PATH={{ beat_home }}:$PATH
+ENV PATH={{ beat_home }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 COPY config {{ beat_home }}
 
 # Add entrypoint wrapper script
 ADD docker-entrypoint /usr/local/bin
+RUN chmod 755 /usr/local/bin/docker-entrypoint
 
 # Provide a non-root user.
-RUN groupadd --gid 1000 {{ beat }} && \
-    useradd -M --uid 1000 --gid 1000 --home {{ beat_home }} {{ beat }}
+{% if image_flavor == 'alpine' -%}
+  RUN addgroup -g 1000 -S {{ beat }} && \
+      adduser -u 1000 -G {{ beat }} -h {{ beat_home }} -S -D {{ beat }}
+{% else -%}
+  RUN groupadd --gid 1000 filebeat && \
+      useradd -M --uid 1000 --gid 1000 --home /usr/share/filebeat filebeat
+{% endif -%}
 
 WORKDIR {{ beat_home }}
 RUN mkdir data logs && \
@@ -43,7 +62,7 @@ RUN setcap cap_net_raw=eip {{ binary_file }}
 {%- if beat == 'auditbeat' %}
 USER root
 {% else %}
-USER 1000
+USER {{ beat }}
 {% endif %}
 
 LABEL org.label-schema.schema-version="1.0" \
